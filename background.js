@@ -1,6 +1,177 @@
 // Background service worker: listens for the "scrape" command and runs the scraping
 // function in the active tab, then merges results into chrome.storage.local
 
+// ============================================================================
+// Update Checker - Checks for new versions from GitHub
+// ============================================================================
+
+var VERSION_JSON_URL = 'https://raw.githubusercontent.com/Hashaam101/google-maps-easy-scrape/main/version.json';
+var UPDATE_CHECK_ALARM_NAME = 'checkForUpdates';
+var CHECK_INTERVAL_MINUTES = 60;
+
+// Get current extension version from manifest
+function getCurrentVersion() {
+    return chrome.runtime.getManifest().version;
+}
+
+// Compare semantic versions (returns 1 if v1 > v2, -1 if v1 < v2, 0 if equal)
+function compareVersions(v1, v2) {
+    var parts1 = v1.split('.').map(function(n) { return parseInt(n, 10) || 0; });
+    var parts2 = v2.split('.').map(function(n) { return parseInt(n, 10) || 0; });
+    
+    // Pad arrays to same length
+    var maxLength = Math.max(parts1.length, parts2.length);
+    while (parts1.length < maxLength) parts1.push(0);
+    while (parts2.length < maxLength) parts2.push(0);
+    
+    for (var i = 0; i < maxLength; i++) {
+        if (parts1[i] > parts2[i]) return 1;
+        if (parts1[i] < parts2[i]) return -1;
+    }
+    return 0;
+}
+
+// Fetch version.json from GitHub
+function fetchVersionInfo() {
+    return fetch(VERSION_JSON_URL)
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('Failed to fetch version info: ' + response.status);
+            }
+            return response.json();
+        })
+        .catch(function(error) {
+            console.error('Error fetching version info:', error);
+            throw error;
+        });
+}
+
+// Check for updates and show notification if newer version is available
+function checkForUpdates() {
+    var currentVersion = getCurrentVersion();
+    
+    fetchVersionInfo()
+        .then(function(versionInfo) {
+            if (!versionInfo || !versionInfo.version) {
+                console.error('Invalid version.json format');
+                return;
+            }
+            
+            var remoteVersion = versionInfo.version;
+            var comparison = compareVersions(remoteVersion, currentVersion);
+            
+            if (comparison > 0) {
+                // Newer version available
+                console.log('New version available: ' + remoteVersion + ' (current: ' + currentVersion + ')');
+                
+                // Store update info in chrome.storage.local
+                chrome.storage.local.set({
+                    updateAvailable: true,
+                    updateVersion: remoteVersion,
+                    updateUrl: versionInfo.downloadUrl || 'https://github.com/Hashaam101/google-maps-easy-scrape/releases/latest',
+                    updateReleaseNotes: versionInfo.releaseNotes || 'Bug fixes and improvements'
+                }, function() {
+                    showUpdateNotification(remoteVersion, versionInfo.downloadUrl, versionInfo.releaseNotes);
+                });
+            } else {
+                console.log('Extension is up to date: ' + currentVersion);
+                // Clear update flag if no update available
+                chrome.storage.local.set({ updateAvailable: false });
+            }
+        })
+        .catch(function(error) {
+            // Handle errors gracefully - don't show notification for network errors
+            console.error('Update check failed:', error);
+        });
+}
+
+// Show Chrome notification for new version
+function showUpdateNotification(version, downloadUrl, releaseNotes) {
+    var notificationId = 'update-available-' + Date.now();
+    var message = 'Version ' + version + ' is now available!';
+    if (releaseNotes) {
+        message += '\n' + releaseNotes;
+    }
+    
+    chrome.notifications.create(notificationId, {
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('map.png'),
+        title: 'Google Maps Easy Scrape - Update Available',
+        message: message,
+        buttons: [
+            { title: 'Download Update' }
+        ],
+        priority: 2
+    }, function(createdId) {
+        if (chrome.runtime.lastError) {
+            console.error('Error showing notification:', chrome.runtime.lastError);
+        } else {
+            // Store download URL for this notification
+            chrome.storage.local.set({
+                ['notification_' + createdId + '_url']: downloadUrl
+            });
+        }
+    });
+}
+
+// Handle notification button clicks
+chrome.notifications.onButtonClicked.addListener(function(notificationId, buttonIndex) {
+    if (buttonIndex === 0) {
+        // Download Update button clicked
+        chrome.storage.local.get(['notification_' + notificationId + '_url', 'updateUrl'], function(data) {
+            var url = data['notification_' + notificationId + '_url'] || data.updateUrl || 'https://github.com/Hashaam101/google-maps-easy-scrape/releases/latest';
+            chrome.tabs.create({ url: url });
+            // Clear notification URL
+            chrome.storage.local.remove('notification_' + notificationId + '_url');
+        });
+        chrome.notifications.clear(notificationId);
+    }
+});
+
+// Handle notification clicks (clicking the notification itself)
+chrome.notifications.onClicked.addListener(function(notificationId) {
+    chrome.storage.local.get(['notification_' + notificationId + '_url', 'updateUrl'], function(data) {
+        var url = data['notification_' + notificationId + '_url'] || data.updateUrl || 'https://github.com/Hashaam101/google-maps-easy-scrape/releases/latest';
+        chrome.tabs.create({ url: url });
+        chrome.storage.local.remove('notification_' + notificationId + '_url');
+    });
+    chrome.notifications.clear(notificationId);
+});
+
+// Set up periodic update checks using chrome.alarms
+function setupUpdateAlarm() {
+    chrome.alarms.create(UPDATE_CHECK_ALARM_NAME, {
+        periodInMinutes: CHECK_INTERVAL_MINUTES
+    });
+}
+
+// Listen for alarm events
+chrome.alarms.onAlarm.addListener(function(alarm) {
+    if (alarm.name === UPDATE_CHECK_ALARM_NAME) {
+        checkForUpdates();
+    }
+});
+
+// Check for updates on extension startup
+chrome.runtime.onStartup.addListener(function() {
+    checkForUpdates();
+});
+
+// Check for updates when extension is installed or enabled
+chrome.runtime.onInstalled.addListener(function() {
+    checkForUpdates();
+    setupUpdateAlarm();
+});
+
+// Set up alarm on service worker startup (for Manifest V3)
+setupUpdateAlarm();
+// Also check immediately on startup
+checkForUpdates();
+
+// ============================================================================
+// End of Update Checker
+// ============================================================================
+
 chrome.commands.onCommand.addListener(function(command) {
     if (command !== 'scrape') return;
 

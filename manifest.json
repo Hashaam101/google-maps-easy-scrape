@@ -3,7 +3,7 @@
     "name": "Google Maps Easy Scrape",
     "version": "1.0",
     "description": "Google Maps Easy Scrape by Mike Powers - Improved by Hashaam101",
-    "permissions": ["activeTab", "scripting", "storage"],
+    "permissions": ["activeTab", "scripting", "storage", "notifications", "alarms"],
     "background": {
       "service_worker": "background.js"
     },

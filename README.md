@@ -14,6 +14,7 @@ A small Chrome extension that extracts listings from Google Maps Search results 
   - Open popup: _extension action_ (default: Ctrl+Shift+Y) — may vary by browser/platform; see chrome://extensions/shortcuts to change.
   - Scrape active Maps tab: Ctrl+Shift+S (command name: `scrape`).
 - Export table preview to an Excel-compatible `.xls` file that preserves visible link labels and underlying links.
+- Get a notification when a new release is publish on Github.
 
 ## Columns and behavior
 
@@ -36,6 +37,25 @@ CSV/XLS export: The popup preview is used as the source for the export. The down
 1. Open `chrome://extensions` (enable Developer mode).
 2. Click "Load unpacked" and choose this project folder (the folder containing `manifest.json`).
 3. Ensure the extension has the required permissions (activeTab, scripting, storage) when Chrome prompts.
+
+## Update Notifications
+
+This extension automatically checks for new versions on GitHub and notifies users when an update is available. The check runs:
+- When Chrome starts
+- Every 60 minutes while running
+
+When a new version is detected, users receive a notification with an option to download the update from the latest GitHub release.
+
+## Installing Updates (For Users)
+
+When you receive an update notification:
+1. Click **"Download Update"** in the notification
+2. Download the latest release zip file from the [Releases page](https://github.com/Hashaam101/google-maps-easy-scrape/releases/latest)
+3. Extract the zip file
+4. Go to `chrome://extensions/`
+5. Enable **Developer mode** (toggle in top-right)
+6. Click **"Load unpacked"** and select the extracted folder
+7. Remove the old version if needed
 
 ## Usage
 
@@ -91,6 +111,50 @@ function doGet(e) {
 
 Note: the web app must allow cross-origin fetches (Apps Script returns JSON by default and works in many cases). If your fetch is blocked by CORS, consider returning newline-delimited text or enabling proper CORS headers from the server side.
 
+## Publishing a New Version (For Developers)
+
+Follow these steps to release a new version of the extension:
+
+### 1. Update Version Numbers
+Update the version in two files:
+- `manifest.json` - Change the `"version"` field (e.g., `"1.0.0"` → `"1.1.0"`)
+- `version.json` - Update version, downloadUrl, and releaseNotes
+
+### 2. Create Distribution Package
+Create a zip file excluding unnecessary files:
+```bash
+zip -r google-maps-easy-scrape-v1.1.0.zip . \
+  -x "*.git*" \
+  -x "*.DS_Store" \
+  -x "node_modules/*" \
+  -x "*.md" \
+  -x "package.json" \
+  -x "package-lock.json"
+```
+
+### 3. Commit and Push Changes
+```bash
+git add .
+git commit -m "Release v1.1.0"
+git push origin main
+```
+
+### 4. Create GitHub Release
+1. Go to [Releases](https://github.com/Hashaam101/google-maps-easy-scrape/releases) → **Create a new release**
+2. Create a new tag: `v1.1.0`
+3. Set release title: `Version 1.1.0`
+4. Add release notes describing changes
+5. Upload the `google-maps-easy-scrape-v1.1.0.zip` file
+6. Click **Publish release**
+
+### 5. Verify version.json
+Make sure the `downloadUrl` in `version.json` points to:
+```
+https://github.com/Hashaam101/google-maps-easy-scrape/releases/latest
+```
+
+Users with the extension installed will automatically receive update notifications within the next hour.
+
 ## Contributing
 
 1. Fork, edit, and create a pull request. Keep changes focused, with small commits.
@@ -101,10 +165,3 @@ Note: the web app must allow cross-origin fetches (Apps Script returns JSON by d
 MIT — feel free to adapt and reuse.
 
 ---
-
-If you'd like, I can:
-- Add a short CHANGELOG or a small screenshot.
-- Add a true `.xlsx` exporter by bundling SheetJS locally (I can add the library file and update the exporter).
-- Add an optional toggle to export either labels-only (current behavior) or label+URL columns.
-
-Tell me which of those you'd like next and I'll implement it.
