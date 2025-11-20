@@ -149,7 +149,133 @@ function setupUpdateAlarm() {
 chrome.alarms.onAlarm.addListener(function(alarm) {
     if (alarm.name === UPDATE_CHECK_ALARM_NAME) {
         checkForUpdates();
+        return;
     }
+
+    // Background continuous scraping alarm
+    var BG_SCRAPE_ALARM = 'gmes_continuous_scrape';
+    if (alarm.name === BG_SCRAPE_ALARM) {
+        // Find any open Google Maps tabs and run the scraper on each
+        chrome.tabs.query({ url: ['*://www.google.com/maps/*'] }, function(tabs) {
+            if (!tabs || tabs.length === 0) return;
+            tabs.forEach(function(tab) {
+                chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    function: scrapeData
+                }, function(results) {
+                    if (!results || !results[0] || !results[0].result) return;
+                    var newItems = results[0].result;
+
+                    // Respect ignore lists and merge into storage
+                    chrome.storage.local.get(['gmes_results', 'gmes_ignore_names', 'gmes_ignore_industries'], function(data) {
+                        var existing = Array.isArray(data.gmes_results) ? data.gmes_results : [];
+                        var ignoreNamesArr = Array.isArray(data.gmes_ignore_names) ? data.gmes_ignore_names : [];
+                        var ignoreIndustriesArr = Array.isArray(data.gmes_ignore_industries) ? data.gmes_ignore_industries : [];
+                        var ignoreNamesSet = new Set(ignoreNamesArr.map(function(s){ return String(s).toLowerCase().trim(); }));
+                        var ignoreIndustriesSet = new Set(ignoreIndustriesArr.map(function(s){ return String(s).toLowerCase().trim(); }));
+
+                        var seen = new Set(existing.map(function(it) { return it.href || (it.title + '|' + it.address); }));
+                        var added = false;
+
+                        newItems.forEach(function(item) {
+                            var key = item.href || (item.title + '|' + item.address);
+                            if (!key) return;
+                            if (seen.has(key)) return;
+                            try {
+                                var ignoreMatch = false;
+                                if (item && item.title) {
+                                    var title = String(item.title).toLowerCase();
+                                    for (var ig of ignoreNamesSet) {
+                                        if (!ig) continue;
+                                        if (title === ig || title.indexOf(ig) !== -1) { ignoreMatch = true; break; }
+                                    }
+                                }
+                                if (!ignoreMatch && item && item.industry) {
+                                    var industry = String(item.industry).toLowerCase();
+                                    for (var ig of ignoreIndustriesSet) {
+                                        if (!ig) continue;
+                                        if (industry === ig || industry.indexOf(ig) !== -1) { ignoreMatch = true; break; }
+                                    }
+                                }
+                                if (ignoreMatch) return;
+                            } catch (e) {
+                                // fallback to adding
+                            }
+                            seen.add(key);
+                            existing.push(item);
+                            added = true;
+                        });
+
+                        if (added) {
+                            chrome.storage.local.set({ gmes_results: existing });
+                        }
+                    });
+                });
+            });
+        });
+    }
+});
+
+// Message API to start/stop background scraping via chrome.alarms
+chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
+    var BG_SCRAPE_ALARM = 'gmes_continuous_scrape';
+    if (!msg || !msg.type) return;
+
+    if (msg.type === 'START_BACKGROUND_SCRAPE') {
+        // periodInMinutes must be >= 1 for chrome.alarms
+        var period = Math.max(1, Number(msg.periodMinutes) || 1);
+        chrome.alarms.create(BG_SCRAPE_ALARM, { periodInMinutes: period });
+        chrome.storage.local.set({ gmes_background_scraping: true });
+        sendResponse({ started: true, periodMinutes: period });
+    } else if (msg.type === 'STOP_BACKGROUND_SCRAPE') {
+        chrome.alarms.clear(BG_SCRAPE_ALARM, function(wasCleared) {
+            chrome.storage.local.set({ gmes_background_scraping: false });
+            sendResponse({ stopped: wasCleared });
+        });
+        // return true to indicate we'll call sendResponse asynchronously
+        return true;
+    }
+});
+
+// Accept items posted from injected content scripts and merge them into storage
+chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
+    if (!msg || msg.type !== 'INJECTED_SCRAPE_ITEMS' || !Array.isArray(msg.items)) return;
+
+    var newItems = msg.items;
+    chrome.storage.local.get(['gmes_results', 'gmes_ignore_names', 'gmes_ignore_industries'], function(data) {
+        var existing = Array.isArray(data.gmes_results) ? data.gmes_results : [];
+        var ignoreNamesArr = Array.isArray(data.gmes_ignore_names) ? data.gmes_ignore_names : [];
+        var ignoreIndustriesArr = Array.isArray(data.gmes_ignore_industries) ? data.gmes_ignore_industries : [];
+        var ignoreNamesSet = new Set(ignoreNamesArr.map(function(s){ return String(s).toLowerCase().trim(); }));
+        var ignoreIndustriesSet = new Set(ignoreIndustriesArr.map(function(s){ return String(s).toLowerCase().trim(); }));
+
+        var seen = new Set(existing.map(function(it) { return it.href || (it.title + '|' + it.address); }));
+        var added = false;
+
+        newItems.forEach(function(item) {
+            var key = item.href || (item.title + '|' + item.address);
+            if (!key) return;
+            if (seen.has(key)) return;
+            try {
+                var ignoreMatch = false;
+                if (item && item.title) {
+                    var title = String(item.title).toLowerCase();
+                    for (var ig of ignoreNamesSet) { if (!ig) continue; if (title === ig || title.indexOf(ig) !== -1) { ignoreMatch = true; break; } }
+                }
+                if (!ignoreMatch && item && item.industry) {
+                    var industry = String(item.industry).toLowerCase();
+                    for (var ig of ignoreIndustriesSet) { if (!ig) continue; if (industry === ig || industry.indexOf(ig) !== -1) { ignoreMatch = true; break; } }
+                }
+                if (ignoreMatch) return;
+            } catch (e) {}
+
+            seen.add(key);
+            existing.push(item);
+            added = true;
+        });
+
+        if (added) chrome.storage.local.set({ gmes_results: existing });
+    });
 });
 
 // Check for updates on extension startup
@@ -186,11 +312,13 @@ chrome.commands.onCommand.addListener(function(command) {
             if (!results || !results[0] || !results[0].result) return;
             var newItems = results[0].result;
 
-            // Also respect an ignore list stored under 'gmes_ignore_chains' (array of strings).
-            chrome.storage.local.get(['gmes_results', 'gmes_ignore_chains'], function(data) {
+            // Also respect ignore lists stored under 'gmes_ignore_names' and 'gmes_ignore_industries' (arrays of strings).
+            chrome.storage.local.get(['gmes_results', 'gmes_ignore_names', 'gmes_ignore_industries'], function(data) {
                 var existing = Array.isArray(data.gmes_results) ? data.gmes_results : [];
-                var ignoreArr = Array.isArray(data.gmes_ignore_chains) ? data.gmes_ignore_chains : [];
-                var ignoreSet = new Set(ignoreArr.map(function(s){ return String(s).toLowerCase().trim(); }));
+                var ignoreNamesArr = Array.isArray(data.gmes_ignore_names) ? data.gmes_ignore_names : [];
+                var ignoreIndustriesArr = Array.isArray(data.gmes_ignore_industries) ? data.gmes_ignore_industries : [];
+                var ignoreNamesSet = new Set(ignoreNamesArr.map(function(s){ return String(s).toLowerCase().trim(); }));
+                var ignoreIndustriesSet = new Set(ignoreIndustriesArr.map(function(s){ return String(s).toLowerCase().trim(); }));
 
                 var seen = new Set(existing.map(function(it) { return it.href || (it.title + '|' + it.address); }));
                 var added = false;
@@ -200,14 +328,34 @@ chrome.commands.onCommand.addListener(function(command) {
                     if (!key) return;
                     // skip if already seen
                     if (seen.has(key)) return;
-                    // skip if title matches an ignore token (case-insensitive substring match)
+                    // skip if title or industry matches an ignore token (case-insensitive substring match)
                     try {
-                        var title = item && item.title ? String(item.title).toLowerCase() : '';
                         var ignoreMatch = false;
-                        for (var ig of ignoreSet) {
-                            if (!ig) continue;
-                            if (title === ig || title.indexOf(ig) !== -1) { ignoreMatch = true; break; }
+                        
+                        // Check title/name
+                        if (item && item.title) {
+                            var title = String(item.title).toLowerCase();
+                            for (var ig of ignoreNamesSet) {
+                                if (!ig) continue;
+                                if (title === ig || title.indexOf(ig) !== -1) { 
+                                    ignoreMatch = true; 
+                                    break; 
+                                }
+                            }
                         }
+                        
+                        // Check industry if title didn't match
+                        if (!ignoreMatch && item && item.industry) {
+                            var industry = String(item.industry).toLowerCase();
+                            for (var ig of ignoreIndustriesSet) {
+                                if (!ig) continue;
+                                if (industry === ig || industry.indexOf(ig) !== -1) { 
+                                    ignoreMatch = true; 
+                                    break; 
+                                }
+                            }
+                        }
+                        
                         if (ignoreMatch) return;
                     } catch (e) {
                         // if matching fails, proceed with adding

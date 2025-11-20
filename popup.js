@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var filenameInput = document.getElementById('filenameInput');
     var removeChainsButton = document.getElementById('removeChainsButton');
     // Hard-coded ignore list URL (kept out of the UI)
-    var HARDCODED_IGNORE_URL = 'https://script.google.com/macros/s/AKfycbzDotyXLGmdAtABTUbYEi6HHeS0QE6tx9Z5hkwaiisykCK1bNNegKNZYACJeSUl_J28/exec?format=text';
+    var HARDCODED_IGNORE_URL = 'https://script.google.com/macros/s/AKfycbzCEBk2vosvbmnV9KyO84CRtX9F5PaOyThSmTKJF5HDxsM8JYrsw2I5d8OFfIyxIsMq/exec';
         var resultsTheadRow = resultsTable.querySelector('thead tr');
         if (!resultsTheadRow) {
             var thead = resultsTable.querySelector('thead') || document.createElement('thead');
@@ -31,17 +31,32 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         // Keep track of seen entries to avoid duplicates across scrapes
         var seenEntries = new Set();
-        // Ignore list (chain names). Lowercased tokens persisted under 'gmes_ignore_chains'
-        var ignoreSet = new Set();
+        // Ignore lists: names and industries. Lowercased tokens persisted under 'gmes_ignore_names' and 'gmes_ignore_industries'
+        var ignoreNamesSet = new Set();
+        var ignoreIndustriesSet = new Set();
 
-        // helper to test if a title matches any ignore token
-        function titleIsIgnored(title) {
-            if (!title) return false;
-            var t = String(title).toLowerCase();
-            for (var ig of ignoreSet) {
-                if (!ig) continue;
-                if (t === ig || t.indexOf(ig) !== -1) return true;
+        // helper to test if an item (title or industry) matches any ignore token
+        function itemIsIgnored(item) {
+            if (!item) return false;
+            
+            // Check title/name
+            if (item.title) {
+                var title = String(item.title).toLowerCase();
+                for (var ig of ignoreNamesSet) {
+                    if (!ig) continue;
+                    if (title === ig || title.indexOf(ig) !== -1) return true;
+                }
             }
+            
+            // Check industry
+            if (item.industry) {
+                var industry = String(item.industry).toLowerCase();
+                for (var ig of ignoreIndustriesSet) {
+                    if (!ig) continue;
+                    if (industry === ig || industry.indexOf(ig) !== -1) return true;
+                }
+            }
+            
             return false;
         }
         // Stored items persisted to localStorage so the popup can be reopened
@@ -165,7 +180,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // filter out ignored items before rendering
             try {
                 storedItems = storedItems.filter(function(it) {
-                    try { return !titleIsIgnored(it && it.title); } catch (e) { return true; }
+                    try { return !itemIsIgnored(it); } catch (e) { return true; }
                 });
             } catch (e) {
                 // if anything goes wrong, fall back to original list
@@ -209,10 +224,17 @@ document.addEventListener('DOMContentLoaded', function() {
         // Load persisted items from chrome.storage.local and render them
         function loadFromStorage() {
             try {
-                chrome.storage.local.get(['gmes_results', 'gmes_ignore_chains'], function(data) {
-                    var ignoreArr = Array.isArray(data.gmes_ignore_chains) ? data.gmes_ignore_chains : [];
-                    ignoreSet.clear();
-                    ignoreArr.forEach(function(s) { if (s) ignoreSet.add(String(s).toLowerCase().trim()); });
+                chrome.storage.local.get(['gmes_results', 'gmes_ignore_names', 'gmes_ignore_industries'], function(data) {
+                    // Load ignore names
+                    var ignoreNamesArr = Array.isArray(data.gmes_ignore_names) ? data.gmes_ignore_names : [];
+                    ignoreNamesSet.clear();
+                    ignoreNamesArr.forEach(function(s) { if (s) ignoreNamesSet.add(String(s).toLowerCase().trim()); });
+                    
+                    // Load ignore industries
+                    var ignoreIndustriesArr = Array.isArray(data.gmes_ignore_industries) ? data.gmes_ignore_industries : [];
+                    ignoreIndustriesSet.clear();
+                    ignoreIndustriesArr.forEach(function(s) { if (s) ignoreIndustriesSet.add(String(s).toLowerCase().trim()); });
+                    
                     renderAllFromStoredItems(Array.isArray(data.gmes_results) ? data.gmes_results : []);
                     // ensure Remove Chains button is enabled (URL is hard-coded)
                     if (removeChainsButton) removeChainsButton.disabled = false;
@@ -278,81 +300,222 @@ document.addEventListener('DOMContentLoaded', function() {
         // Remove Chains button: fetch the hard-coded ignore list, persist it, and remove matches
         if (removeChainsButton) {
             removeChainsButton.addEventListener('click', function() {
-                var url = HARDCODED_IGNORE_URL;
+                var baseUrl = HARDCODED_IGNORE_URL;
                 // show spinner inside button
                 var spinner = removeChainsButton.querySelector('.spinner');
                 if (spinner) spinner.style.display = 'inline-block';
                 removeChainsButton.disabled = true;
-                fetch(url, { method: 'GET' })
-                    .then(function(resp) { return resp.text(); })
-                    .then(function(txt) {
-                        var arr = [];
-                        try {
-                            var parsed = JSON.parse(txt);
-                            if (Array.isArray(parsed)) arr = parsed.map(function(s) { return String(s).trim(); }).filter(Boolean);
-                        } catch (e) {
-                            arr = txt.split(/\r?\n/).map(function(s) { return String(s).trim(); }).filter(Boolean);
+
+                // Try variants of the URL if the base fails (append format=text/json if missing)
+                function buildVariants(url) {
+                    var variants = [url];
+                    try {
+                        if (url.indexOf('format=') === -1) {
+                            var sep = url.indexOf('?') === -1 ? '?' : '&';
+                            variants.push(url + sep + 'format=text');
+                            variants.push(url + sep + 'format=json');
                         }
+                    } catch (e) {
+                        // ignore
+                    }
+                    return variants;
+                }
 
-                        var normalized = arr.map(function(s) { return String(s).toLowerCase().trim(); }).filter(Boolean);
-                        chrome.storage.local.set({ gmes_ignore_chains: normalized }, function() {
-                            ignoreSet.clear();
-                            normalized.forEach(function(s) { ignoreSet.add(s); });
+                var variants = buildVariants(baseUrl);
 
-                            var before = storedItems.length;
-                            storedItems = storedItems.filter(function(it) { try { return !titleIsIgnored(it && it.title); } catch (e) { return true; } });
-                            var removed = before - storedItems.length;
-                            saveToStorage();
-                            renderAllFromStoredItems(storedItems);
-                            alert('Removed ' + removed + ' matching lead(s). Ignore list saved.');
-                            // hide spinner and re-enable
-                            if (spinner) spinner.style.display = 'none';
-                            removeChainsButton.disabled = false;
-                        });
-                    }).catch(function(err) {
-                        console.error('Failed to fetch ignore list', err);
-                        alert('Failed to fetch ignore list: ' + (err && err.message ? err.message : err));
+                // Attempt fetch sequentially until one succeeds
+                (function tryNext(i) {
+                    if (i >= variants.length) {
                         if (spinner) spinner.style.display = 'none';
                         removeChainsButton.disabled = false;
-                    });
+                        alert('Failed to fetch ignore list from all attempted URLs. Check deployment and access (Anyone, even anonymous).');
+                        return;
+                    }
+                    var url = variants[i];
+                    fetch(url, { method: 'GET' })
+                        .then(function(resp) {
+                            // if HTTP error status (4xx/5xx) treat as failure and try next
+                            if (!resp.ok) {
+                                return resp.text().then(function(text) {
+                                    console.warn('Fetch returned non-ok status', resp.status, url, text.slice(0,200));
+                                    tryNext(i+1);
+                                });
+                            }
+                            return resp.text().then(function(txt) {
+                                // parse response (support new format {names:[], industries:[]} or legacy array/text)
+                                var namesArr = [];
+                                var industriesArr = [];
+                                try {
+                                    var parsed = JSON.parse(txt);
+                                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                                        if (Array.isArray(parsed.names)) namesArr = parsed.names.map(function(s){ return String(s).trim(); }).filter(Boolean);
+                                        if (Array.isArray(parsed.industries)) industriesArr = parsed.industries.map(function(s){ return String(s).trim(); }).filter(Boolean);
+                                    } else if (Array.isArray(parsed)) {
+                                        namesArr = parsed.map(function(s){ return String(s).trim(); }).filter(Boolean);
+                                    }
+                                } catch (e) {
+                                    // fallback to newline-splitting
+                                    var lines = txt.split(/\r?\n/).map(function(s){ return String(s).trim(); }).filter(Boolean);
+                                    namesArr = lines;
+                                }
+
+                                var normalizedNames = namesArr.map(function(s) { return String(s).toLowerCase().trim(); }).filter(Boolean);
+                                var normalizedIndustries = industriesArr.map(function(s) { return String(s).toLowerCase().trim(); }).filter(Boolean);
+
+                                chrome.storage.local.set({ 
+                                    gmes_ignore_names: normalizedNames,
+                                    gmes_ignore_industries: normalizedIndustries
+                                }, function() {
+                                    ignoreNamesSet.clear();
+                                    normalizedNames.forEach(function(s) { ignoreNamesSet.add(s); });
+                                    ignoreIndustriesSet.clear();
+                                    normalizedIndustries.forEach(function(s) { ignoreIndustriesSet.add(s); });
+
+                                    var before = storedItems.length;
+                                    storedItems = storedItems.filter(function(it) { try { return !itemIsIgnored(it); } catch (e) { return true; } });
+                                    var removed = before - storedItems.length;
+                                    saveToStorage();
+                                    renderAllFromStoredItems(storedItems);
+
+                                    var msg = 'Removed ' + removed + ' matching lead(s).';
+                                    if (normalizedNames.length > 0) msg += ' Names: ' + normalizedNames.length;
+                                    if (normalizedIndustries.length > 0) msg += ' Industries: ' + normalizedIndustries.length;
+                                    msg += ' Ignore list saved.';
+                                    alert(msg);
+
+                                    if (spinner) spinner.style.display = 'none';
+                                    removeChainsButton.disabled = false;
+                                });
+                            });
+                        })
+                        .catch(function(err) {
+                            console.warn('Fetch failed for', url, err && err.message ? err.message : err);
+                            // try next variant
+                            tryNext(i+1);
+                        });
+                })(0);
             });
         }
 
-        actionButton.addEventListener('click', function() {
+        // Provide a start/stop recording scraping behavior. Clicking the button toggles
+        // continuous scraping which runs `scrapeData` repeatedly and appends only new items.
+        // Default label set to 'Start Scraping'.
+        if (actionButton) {
+            actionButton.textContent = 'Start Scraping';
+        }
+
+        var scraping = false;
+
+        function runScrapeOnce() {
+            if (!currentTab || !currentTab.id) return;
             chrome.scripting.executeScript({
-                target: {tabId: currentTab.id},
+                target: { tabId: currentTab.id },
                 function: scrapeData
             }, function(results) {
-                if (!results || !results[0] || !results[0].result) return;
+                try {
+                    if (!results || !results[0] || !results[0].result) return;
+                    (results[0].result || []).filter(Boolean).forEach(function(item) {
+                        var uniqueKey = item.href || (item.title + '|' + item.address);
+                        if (!uniqueKey) return;
+                        if (itemIsIgnored(item)) return;
+                        item.expensiveness = cleanExpensiveness(item.expensiveness || '');
+                        if (seenEntries.has(uniqueKey)) return; // skip duplicates
+                        seenEntries.add(uniqueKey);
 
-                // Append only unique items (by href when available)
-                // filter out any falsy results (e.g., permanently closed places that we skipped)
-                (results[0].result || []).filter(Boolean).forEach(function(item) {
-                    var uniqueKey = item.href || (item.title + '|' + item.address);
-                    if (!uniqueKey) return;
-                    // skip items whose title matches the ignore list
-                    if (titleIsIgnored(item && item.title)) return;
-                    // sanitize expensiveness before saving/display
-                    item.expensiveness = cleanExpensiveness(item.expensiveness || '');
-                    if (seenEntries.has(uniqueKey)) return; // skip duplicates
-                    seenEntries.add(uniqueKey);
+                        var row = createRowFromItem(item);
+                        resultsTbody.appendChild(row);
 
-                    // Append to DOM
-                    var row = createRowFromItem(item);
-                    resultsTbody.appendChild(row);
+                        storedItems.push(item);
+                        saveToStorage();
+                    });
 
-                    // Persist the new item
-                    storedItems.push(item);
-                    saveToStorage();
-                });
-
-                // enable download and clear buttons if we have at least one entry
-                if (seenEntries.size > 0) {
-                    downloadCsvButton.disabled = false;
-                    if (clearButton) clearButton.disabled = false;
+                    if (seenEntries.size > 0) {
+                        downloadCsvButton.disabled = false;
+                        if (clearButton) clearButton.disabled = false;
+                    }
+                } catch (e) {
+                    console.error('runScrapeOnce error', e);
                 }
             });
+        }
+
+        // Helpers to start/stop background scraping via the background service worker
+        // Start the injected 500ms scraper in the active Maps tab. This injects a
+        // content script that runs inside the page, shows a popdown even when popup
+        // is closed, and posts discovered items via chrome.runtime.sendMessage.
+        function startInjectedScraper(tabId) {
+            try {
+                chrome.scripting.executeScript({
+                    target: { tabId: tabId },
+                    files: ['injected_scraper.js']
+                }, function() {
+                    chrome.storage.local.set({ gmes_background_scraping: true });
+                });
+            } catch (e) {
+                console.error('Failed to inject scraper', e);
+            }
+        }
+
+        function stopInjectedScraper(tabId) {
+            try {
+                chrome.scripting.executeScript({
+                    target: { tabId: tabId },
+                    func: function() {
+                        try {
+                            if (window.__GMES_SCRAPER__) {
+                                window.__GMES_SCRAPER__.stop = true;
+                                if (window.__GMES_SCRAPER__.intervalId) clearInterval(window.__GMES_SCRAPER__.intervalId);
+                                var el = document.getElementById('gmes-popdown'); if (el && el.parentNode) el.parentNode.removeChild(el);
+                                try { delete window.__GMES_SCRAPER__; } catch (e) {}
+                            }
+                        } catch (e) {}
+                    }
+                }, function() {
+                    chrome.storage.local.set({ gmes_background_scraping: false });
+                });
+            } catch (e) {
+                console.error('Failed to stop injected scraper', e);
+            }
+        }
+
+        // Initialize scraping button state from storage and wire start/stop to the
+        // injected content script so scraping continues while popup is closed.
+        chrome.storage.local.get(['gmes_background_scraping'], function(data) {
+            scraping = Boolean(data.gmes_background_scraping);
+            if (actionButton) actionButton.textContent = scraping ? 'Stop Scraping' : 'Start Scraping';
         });
+
+        if (actionButton) {
+            actionButton.addEventListener('click', function() {
+                if (!scraping) {
+                    scraping = true;
+                    actionButton.textContent = 'Stop Scraping';
+                    // inject scraper into current maps tab
+                    if (currentTab && currentTab.id) startInjectedScraper(currentTab.id);
+                    // also run an immediate scrape locally so popup shows results immediately
+                    runScrapeOnce();
+                } else {
+                    scraping = false;
+                    actionButton.textContent = 'Start Scraping';
+                    if (currentTab && currentTab.id) {
+                        stopInjectedScraper(currentTab.id);
+                        // After stopping the scraper, trigger Remove Chains to run
+                        // Give a short delay so the injected script can clean up before fetch
+                        setTimeout(function() {
+                            try {
+                                if (removeChainsButton && typeof removeChainsButton.click === 'function') {
+                                    // Ensure button is enabled before clicking
+                                    removeChainsButton.disabled = false;
+                                    removeChainsButton.click();
+                                }
+                            } catch (e) {
+                                console.error('Failed to trigger Remove Chains automatically', e);
+                            }
+                        }, 250);
+                    }
+                }
+            });
+        }
 
         // Clear List button clears the tbody and the seen set
         if (clearButton) {
