@@ -455,32 +455,28 @@ function scrapeData() {
             phone = phoneMatch ? phoneMatch[0] : '';
         }
 
-        // small helper to extract city from address inside the injected function
-        function getCityFromAddress_local(addr) {
-            if (!addr || typeof addr !== 'string') return '';
-            var parts = addr.split(',').map(function(p){return p.trim();}).filter(Boolean);
-            if (parts.length === 0) return '';
-            for (var i = parts.length - 1; i >= 0; i--) {
-                var p = parts[i];
-                if (!/^\d+$/.test(p) && !/^[A-Z0-9\- ]{2,}$/.test(p)) {
-                    return p;
-                }
+        function getCityFromQuery() {
+            var title = document.title || '';
+            var match = title.match(/in\s(.*?)\s-\sGoogle\sMaps/);
+            if (match && match.length > 1) {
+              var city = match[1];
+              var potentialCity = city.split(' - ')[0];
+              return potentialCity;
             }
-            return parts[parts.length - 1];
+            
+            var searchInput = document.querySelector('input[aria-label="Search Google Maps"]') || document.querySelector('#searchboxinput') || document.querySelector('input[aria-label*="Search"]');
+            if (searchInput) {
+              var query = searchInput.value;
+              var inIndex = query.toLowerCase().indexOf(' in ');
+              if (inIndex !== -1) {
+                return query.substring(inIndex + 4);
+              }
+            }
+            
+            return '';
         }
 
-        // Try to extract city from the Maps search box (e.g. "Restaurants in City")
-        var searchCity = '';
-        try {
-            var searchInput = document.querySelector('#searchboxinput') || document.querySelector('input[aria-label*="Search"]');
-            var searchVal = searchInput ? (searchInput.value || '') : '';
-            var m = searchVal.match(/(?:Restaurants?|Restaurant) in (.+)/i);
-            if (m && m[1]) searchCity = m[1].trim();
-        } catch (e) {
-            // ignore
-        }
-
-        var city = searchCity || getCityFromAddress_local(address);
+        var city = getCityFromQuery();
         var query = titleText + (city ? ' ' + city : '') + ' Instagram';
         var instaSearch = 'https://www.google.com/search?q=' + encodeURIComponent(query);
 

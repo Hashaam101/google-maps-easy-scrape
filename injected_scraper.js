@@ -38,15 +38,29 @@
     if (el && el.parentNode) el.parentNode.removeChild(el);
   }
 
-  function getCityFromAddress_local(addr) {
-    if (!addr || typeof addr !== 'string') return '';
-    var parts = addr.split(',').map(function(p){ return p.trim(); }).filter(Boolean);
-    if (parts.length === 0) return '';
-    for (var i = parts.length - 1; i >= 0; i--) {
-      var p = parts[i];
-      if (!/^\d+$/.test(p) && !/^[A-Z0-9\- ]{2,}$/.test(p)) return p;
+  function getCityFromQuery() {
+    var title = document.title || '';
+    var match = title.match(/in\s(.*?)\s-\sGoogle\sMaps/);
+    if (match && match.length > 1) {
+      // To handle cases like "Restaurant in columbus ohio"
+      var city = match[1];
+      // The regex might capture things after the city if the title is unusual.
+      // Let's refine it to be more robust.
+      var potentialCity = city.split(' - ')[0];
+      return potentialCity;
     }
-    return parts[parts.length - 1];
+    
+    // Fallback for "Restaurants in city"
+    var searchInput = document.querySelector('input[aria-label="Search Google Maps"]');
+    if (searchInput) {
+      var query = searchInput.value;
+      var inIndex = query.toLowerCase().indexOf(' in ');
+      if (inIndex !== -1) {
+        return query.substring(inIndex + 4);
+      }
+    }
+    
+    return '';
   }
 
   function cleanExpensiveness(raw) {
@@ -56,6 +70,7 @@
 
   function scrapeOnce() {
     try {
+      var city = getCityFromQuery();
       var links = Array.from(document.querySelectorAll('a[href^="https://www.google.com/maps/place"]'));
       var newItems = [];
       links.forEach(function(link) {
@@ -76,9 +91,11 @@
             if (roleImgContainer) {
               var ariaLabel = roleImgContainer.getAttribute('aria-label');
               if (ariaLabel && ariaLabel.includes('stars')) {
-                var parts = ariaLabel.split(' ');
-                rating = parts[0];
-                reviewCount = '(' + parts[2] + ')';
+                try {
+                  var parts = ariaLabel.split(' ');
+                  rating = parts[0] || '';
+                  reviewCount = '(' + (parts[2] || '') + ')';
+                } catch (e) {}
               } else { rating = '0'; reviewCount = '0'; }
             }
 
@@ -91,8 +108,11 @@
               if (ratingIndex !== -1) {
                 var rawIndustryText = textBeforeAddress.substring(ratingIndex + (rating + reviewCount).length).trim().split(/\r?\n/)[0] || '';
                 var cleanedRawIndustry = rawIndustryText.replace(/[·.,#!?]/g, '').trim();
-                var industryAlpha = cleanedRawIndustry.replace(/[^A-Za-z\s]/g, '').trim();
-                industry = industryAlpha;
+                            var industryAlpha = cleanedRawIndustry.replace(/[^A-Za-z\s]/g, '').trim();
+                            industry = industryAlpha;
+                            // derive expensiveness from the cleaned raw industry text (symbols, $, digits)
+                            var expensivenessMatch = cleanedRawIndustry.replace(/[A-Za-z\s]/g, '').trim();
+                            expensiveness = expensivenessMatch;
               }
             }
 
@@ -105,9 +125,10 @@
             var phone = phoneMatch ? phoneMatch[0] : '';
           }
 
-          var city = getCityFromAddress_local(address);
-          var expensiveness = '';
           // build object
+          var instaSearch = '';
+          try { instaSearch = 'https://www.google.com/search?q=' + encodeURIComponent((titleText || '') + (city ? ' ' + city : '') + ' Instagram'); } catch (e) { instaSearch = ''; }
+
           var item = {
             title: titleText || '',
             rating: rating || '',
@@ -118,6 +139,7 @@
             city: city || '',
             address: address || '',
             companyUrl: companyUrl || '',
+            instaSearch: instaSearch || '',
             href: link.href
           };
 
