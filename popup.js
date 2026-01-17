@@ -1,5 +1,51 @@
-document.addEventListener('DOMContentLoaded', function() {
-    chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+document.addEventListener('DOMContentLoaded', function () {
+    // Mode handling
+    chrome.storage.local.get(['gmes_mode'], function (result) {
+        var mode = result.gmes_mode || 'scraping';
+        setMode(mode);
+    });
+
+    function setMode(mode) {
+        // Update storage
+        chrome.storage.local.set({ gmes_mode: mode, gmes_overlay_dismissed: false });
+
+        // Update UI
+        var scrapingBtn = document.getElementById('scrapingModeBtn');
+        var manualBtn = document.getElementById('manualModeBtn');
+        var scrapingSection = document.getElementById('scrapingModeSection');
+        var manualSection = document.getElementById('manualModeSection');
+        var shortcutsDiv = document.getElementById('scraping-shortcuts');
+
+        if (mode === 'scraping') {
+            scrapingBtn.classList.add('active');
+            manualBtn.classList.remove('active');
+            scrapingSection.style.display = 'block';
+            manualSection.style.display = 'none';
+            if (shortcutsDiv) shortcutsDiv.style.display = 'block';
+        } else {
+            scrapingBtn.classList.remove('active');
+            manualBtn.classList.add('active');
+            scrapingSection.style.display = 'none';
+            manualSection.style.display = 'block';
+            if (shortcutsDiv) shortcutsDiv.style.display = 'none';
+
+            // Inject website scanner if on non-Maps page
+            chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+                var url = tabs[0] ? tabs[0].url : '';
+                if (url && !url.includes('google.com/maps')) {
+                    chrome.scripting.executeScript({
+                        target: { tabId: tabs[0].id },
+                        files: ['manual_mode_website.js']
+                    });
+                }
+            });
+        }
+    }
+
+    document.getElementById('scrapingModeBtn').addEventListener('click', function () { setMode('scraping'); });
+    document.getElementById('manualModeBtn').addEventListener('click', function () { setMode('manual'); });
+
+    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
         var currentTab = tabs[0];
         var actionButton = document.getElementById('actionButton');
         var clearButton = document.getElementById('clearListButton');
@@ -18,10 +64,10 @@ document.addEventListener('DOMContentLoaded', function() {
             resultsTable.appendChild(resultsTbody);
         }
 
-    var filenameInput = document.getElementById('filenameInput');
-    var removeChainsButton = document.getElementById('removeChainsButton');
-    // Hard-coded ignore list URL (kept out of the UI)
-    var HARDCODED_IGNORE_URL = 'https://script.google.com/macros/s/AKfycbzCEBk2vosvbmnV9KyO84CRtX9F5PaOyThSmTKJF5HDxsM8JYrsw2I5d8OFfIyxIsMq/exec';
+        var filenameInput = document.getElementById('filenameInput');
+        var removeChainsButton = document.getElementById('removeChainsButton');
+        // Hard-coded ignore list URL (kept out of the UI)
+        var HARDCODED_IGNORE_URL = 'https://script.google.com/macros/s/AKfycbzCEBk2vosvbmnV9KyO84CRtX9F5PaOyThSmTKJF5HDxsM8JYrsw2I5d8OFfIyxIsMq/exec';
         var resultsTheadRow = resultsTable.querySelector('thead tr');
         if (!resultsTheadRow) {
             var thead = resultsTable.querySelector('thead') || document.createElement('thead');
@@ -38,7 +84,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // helper to test if an item (title or industry) matches any ignore token
         function itemIsIgnored(item) {
             if (!item) return false;
-            
+
             // Check title/name
             if (item.title) {
                 var title = String(item.title).toLowerCase();
@@ -47,7 +93,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (title === ig || title.indexOf(ig) !== -1) return true;
                 }
             }
-            
+
             // Check industry
             if (item.industry) {
                 var industry = String(item.industry).toLowerCase();
@@ -56,7 +102,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (industry === ig || industry.indexOf(ig) !== -1) return true;
                 }
             }
-            
+
             return false;
         }
         // Stored items persisted to localStorage so the popup can be reopened
@@ -76,8 +122,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // Helper: create a table row element from an item object
         function createRowFromItem(item) {
             var row = document.createElement('tr');
-                // column order: title, closedStatus, rating, reviewCount, phone, industry, expensiveness, city, address, website, instaSearch, maps link
-                ['title', 'closedStatus', 'rating', 'reviewCount', 'phone', 'industry', 'expensiveness', 'city', 'address', 'companyUrl', 'instaSearch', 'href'].forEach(function(colKey) {
+            // column order: title, closedStatus, rating, reviewCount, phone, industry, expensiveness, city, address, website, instaSearch, maps link
+            ['title', 'closedStatus', 'rating', 'reviewCount', 'phone', 'industry', 'expensiveness', 'city', 'address', 'companyUrl', 'instaSearch', 'href'].forEach(function (colKey) {
                 var cell = document.createElement('td');
 
                 // Special rendering for links
@@ -162,7 +208,7 @@ document.addEventListener('DOMContentLoaded', function() {
             storedItems = Array.isArray(items) ? items : [];
             // filter out ignored items before rendering
             try {
-                storedItems = storedItems.filter(function(it) {
+                storedItems = storedItems.filter(function (it) {
                     try { return !itemIsIgnored(it); } catch (e) { return true; }
                 });
             } catch (e) {
@@ -174,13 +220,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             seenEntries.clear();
 
-            storedItems.forEach(function(item) {
+            storedItems.forEach(function (item) {
                 var uniqueKey = item.href || (item.title + '|' + item.address);
                 if (!uniqueKey) return;
-                    // normalize expensiveness for older stored items
-                    item.expensiveness = cleanExpensiveness(item.expensiveness || '');
-                    if (seenEntries.has(uniqueKey)) return;
-                    seenEntries.add(uniqueKey);
+                // normalize expensiveness for older stored items
+                item.expensiveness = cleanExpensiveness(item.expensiveness || '');
+                if (seenEntries.has(uniqueKey)) return;
+                seenEntries.add(uniqueKey);
                 var row = createRowFromItem(item);
                 resultsTbody.appendChild(row);
             });
@@ -193,31 +239,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 downloadCsvButton.disabled = true;
                 if (clearButton) clearButton.disabled = true;
             }
-                // Update the message to show total extracted when on Maps page
-                try {
-                    if (currentTab && currentTab.url.includes('://www.google.com/maps/')) {
-                        var msgEl = document.getElementById('message');
-                        if (msgEl) msgEl.textContent = 'Total Extracted: ' + (storedItems.length || 0);
-                    }
-                } catch (e) {
-                    console.error('Failed to update total extracted message', e);
+            // Update the message to show total extracted when on Maps page
+            try {
+                if (currentTab && currentTab.url.includes('://www.google.com/maps/')) {
+                    var msgEl = document.getElementById('message');
+                    if (msgEl) msgEl.textContent = 'Total Extracted: ' + (storedItems.length || 0);
                 }
+            } catch (e) {
+                console.error('Failed to update total extracted message', e);
+            }
         }
 
         // Load persisted items from chrome.storage.local and render them
         function loadFromStorage() {
             try {
-                chrome.storage.local.get(['gmes_results', 'gmes_ignore_names', 'gmes_ignore_industries'], function(data) {
+                chrome.storage.local.get(['gmes_results', 'gmes_ignore_names', 'gmes_ignore_industries'], function (data) {
                     // Load ignore names
                     var ignoreNamesArr = Array.isArray(data.gmes_ignore_names) ? data.gmes_ignore_names : [];
                     ignoreNamesSet.clear();
-                    ignoreNamesArr.forEach(function(s) { if (s) ignoreNamesSet.add(String(s).toLowerCase().trim()); });
-                    
+                    ignoreNamesArr.forEach(function (s) { if (s) ignoreNamesSet.add(String(s).toLowerCase().trim()); });
+
                     // Load ignore industries
                     var ignoreIndustriesArr = Array.isArray(data.gmes_ignore_industries) ? data.gmes_ignore_industries : [];
                     ignoreIndustriesSet.clear();
-                    ignoreIndustriesArr.forEach(function(s) { if (s) ignoreIndustriesSet.add(String(s).toLowerCase().trim()); });
-                    
+                    ignoreIndustriesArr.forEach(function (s) { if (s) ignoreIndustriesSet.add(String(s).toLowerCase().trim()); });
+
                     renderAllFromStoredItems(Array.isArray(data.gmes_results) ? data.gmes_results : []);
                     // ensure Remove Chains button is enabled (URL is hard-coded)
                     if (removeChainsButton) removeChainsButton.disabled = false;
@@ -237,7 +283,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // Listen for storage changes (e.g., background command added items)
-        chrome.storage.onChanged.addListener(function(changes, area) {
+        chrome.storage.onChanged.addListener(function (changes, area) {
             if (area !== 'local') return;
             if (changes.gmes_results) {
                 renderAllFromStoredItems(Array.isArray(changes.gmes_results.newValue) ? changes.gmes_results.newValue : []);
@@ -254,12 +300,12 @@ document.addEventListener('DOMContentLoaded', function() {
             var linkElement = document.createElement('a');
             linkElement.href = 'https://www.google.com/maps/search/';
             linkElement.textContent = "Go to Google Maps Search.";
-            linkElement.target = '_blank'; 
+            linkElement.target = '_blank';
             messageElement.appendChild(linkElement);
 
-            actionButton.style.display = 'none'; 
+            actionButton.style.display = 'none';
             downloadCsvButton.style.display = 'none';
-            filenameInput.style.display = 'none'; 
+            filenameInput.style.display = 'none';
         }
 
         // Render table header once (so it isn't re-rendered/cleared on each scrape)
@@ -267,7 +313,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const headers = ['Title', 'Closed Status', 'Rating', 'Reviews', 'Phone', 'Industry', 'Expensiveness', 'City', 'Address', 'Website', 'Insta Search', 'Google Maps Link'];
             // clear existing header row contents
             resultsTheadRow.innerHTML = '';
-            headers.forEach(function(headerText) {
+            headers.forEach(function (headerText) {
                 var header = document.createElement('th');
                 header.textContent = headerText;
                 resultsTheadRow.appendChild(header);
@@ -282,7 +328,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Remove Chains button: fetch the hard-coded ignore list, persist it, and remove matches
         if (removeChainsButton) {
-            removeChainsButton.addEventListener('click', function() {
+            removeChainsButton.addEventListener('click', function () {
                 var baseUrl = HARDCODED_IGNORE_URL;
                 // show spinner inside button
                 var spinner = removeChainsButton.querySelector('.spinner');
@@ -316,46 +362,46 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                     var url = variants[i];
                     fetch(url, { method: 'GET' })
-                        .then(function(resp) {
+                        .then(function (resp) {
                             // if HTTP error status (4xx/5xx) treat as failure and try next
                             if (!resp.ok) {
-                                return resp.text().then(function(text) {
-                                    console.warn('Fetch returned non-ok status', resp.status, url, text.slice(0,200));
-                                    tryNext(i+1);
+                                return resp.text().then(function (text) {
+                                    console.warn('Fetch returned non-ok status', resp.status, url, text.slice(0, 200));
+                                    tryNext(i + 1);
                                 });
                             }
-                            return resp.text().then(function(txt) {
+                            return resp.text().then(function (txt) {
                                 // parse response (support new format {names:[], industries:[]} or legacy array/text)
                                 var namesArr = [];
                                 var industriesArr = [];
                                 try {
                                     var parsed = JSON.parse(txt);
                                     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                                        if (Array.isArray(parsed.names)) namesArr = parsed.names.map(function(s){ return String(s).trim(); }).filter(Boolean);
-                                        if (Array.isArray(parsed.industries)) industriesArr = parsed.industries.map(function(s){ return String(s).trim(); }).filter(Boolean);
+                                        if (Array.isArray(parsed.names)) namesArr = parsed.names.map(function (s) { return String(s).trim(); }).filter(Boolean);
+                                        if (Array.isArray(parsed.industries)) industriesArr = parsed.industries.map(function (s) { return String(s).trim(); }).filter(Boolean);
                                     } else if (Array.isArray(parsed)) {
-                                        namesArr = parsed.map(function(s){ return String(s).trim(); }).filter(Boolean);
+                                        namesArr = parsed.map(function (s) { return String(s).trim(); }).filter(Boolean);
                                     }
                                 } catch (e) {
                                     // fallback to newline-splitting
-                                    var lines = txt.split(/\r?\n/).map(function(s){ return String(s).trim(); }).filter(Boolean);
+                                    var lines = txt.split(/\r?\n/).map(function (s) { return String(s).trim(); }).filter(Boolean);
                                     namesArr = lines;
                                 }
 
-                                var normalizedNames = namesArr.map(function(s) { return String(s).toLowerCase().trim(); }).filter(Boolean);
-                                var normalizedIndustries = industriesArr.map(function(s) { return String(s).toLowerCase().trim(); }).filter(Boolean);
+                                var normalizedNames = namesArr.map(function (s) { return String(s).toLowerCase().trim(); }).filter(Boolean);
+                                var normalizedIndustries = industriesArr.map(function (s) { return String(s).toLowerCase().trim(); }).filter(Boolean);
 
-                                chrome.storage.local.set({ 
+                                chrome.storage.local.set({
                                     gmes_ignore_names: normalizedNames,
                                     gmes_ignore_industries: normalizedIndustries
-                                }, function() {
+                                }, function () {
                                     ignoreNamesSet.clear();
-                                    normalizedNames.forEach(function(s) { ignoreNamesSet.add(s); });
+                                    normalizedNames.forEach(function (s) { ignoreNamesSet.add(s); });
                                     ignoreIndustriesSet.clear();
-                                    normalizedIndustries.forEach(function(s) { ignoreIndustriesSet.add(s); });
+                                    normalizedIndustries.forEach(function (s) { ignoreIndustriesSet.add(s); });
 
                                     var before = storedItems.length;
-                                    storedItems = storedItems.filter(function(it) { try { return !itemIsIgnored(it); } catch (e) { return true; } });
+                                    storedItems = storedItems.filter(function (it) { try { return !itemIsIgnored(it); } catch (e) { return true; } });
                                     var removed = before - storedItems.length;
                                     saveToStorage();
                                     renderAllFromStoredItems(storedItems);
@@ -371,10 +417,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                 });
                             });
                         })
-                        .catch(function(err) {
+                        .catch(function (err) {
                             console.warn('Fetch failed for', url, err && err.message ? err.message : err);
                             // try next variant
-                            tryNext(i+1);
+                            tryNext(i + 1);
                         });
                 })(0);
             });
@@ -394,10 +440,10 @@ document.addEventListener('DOMContentLoaded', function() {
             chrome.scripting.executeScript({
                 target: { tabId: currentTab.id },
                 function: scrapeData
-            }, function(results) {
+            }, function (results) {
                 try {
                     if (!results || !results[0] || !results[0].result) return;
-                    (results[0].result || []).filter(Boolean).forEach(function(item) {
+                    (results[0].result || []).filter(Boolean).forEach(function (item) {
                         var uniqueKey = item.href || (item.title + '|' + item.address);
                         if (!uniqueKey) return;
                         if (itemIsIgnored(item)) return;
@@ -431,7 +477,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 chrome.scripting.executeScript({
                     target: { tabId: tabId },
                     files: ['injected_scraper.js']
-                }, function() {
+                }, function () {
                     chrome.storage.local.set({ gmes_background_scraping: true });
                 });
             } catch (e) {
@@ -443,17 +489,17 @@ document.addEventListener('DOMContentLoaded', function() {
             try {
                 chrome.scripting.executeScript({
                     target: { tabId: tabId },
-                    func: function() {
+                    func: function () {
                         try {
                             if (window.__GMES_SCRAPER__) {
                                 window.__GMES_SCRAPER__.stop = true;
                                 if (window.__GMES_SCRAPER__.intervalId) clearInterval(window.__GMES_SCRAPER__.intervalId);
                                 var el = document.getElementById('gmes-popdown'); if (el && el.parentNode) el.parentNode.removeChild(el);
-                                try { delete window.__GMES_SCRAPER__; } catch (e) {}
+                                try { delete window.__GMES_SCRAPER__; } catch (e) { }
                             }
-                        } catch (e) {}
+                        } catch (e) { }
                     }
-                }, function() {
+                }, function () {
                     chrome.storage.local.set({ gmes_background_scraping: false });
                 });
             } catch (e) {
@@ -463,13 +509,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Initialize scraping button state from storage and wire start/stop to the
         // injected content script so scraping continues while popup is closed.
-        chrome.storage.local.get(['gmes_background_scraping'], function(data) {
+        chrome.storage.local.get(['gmes_background_scraping'], function (data) {
             scraping = Boolean(data.gmes_background_scraping);
             if (actionButton) actionButton.textContent = scraping ? 'Stop Scraping' : 'Start Scraping';
         });
 
         if (actionButton) {
-            actionButton.addEventListener('click', function() {
+            actionButton.addEventListener('click', function () {
                 if (!scraping) {
                     scraping = true;
                     actionButton.textContent = 'Stop Scraping';
@@ -484,7 +530,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         stopInjectedScraper(currentTab.id);
                         // After stopping the scraper, trigger Remove Chains to run
                         // Give a short delay so the injected script can clean up before fetch
-                        setTimeout(function() {
+                        setTimeout(function () {
                             try {
                                 if (removeChainsButton && typeof removeChainsButton.click === 'function') {
                                     // Ensure button is enabled before clicking
@@ -502,7 +548,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Clear List button clears the tbody and the seen set
         if (clearButton) {
-            clearButton.addEventListener('click', function() {
+            clearButton.addEventListener('click', function () {
                 var confirmed = confirm('Are you sure you want to clear the list? This will remove all saved entries.');
                 if (!confirmed) return;
 
@@ -519,7 +565,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Export visible table preview to an HTML-based .xls file which preserves hyperlinks
         // (works with Excel and many spreadsheet apps and avoids loading remote libs subject to CSP)
-        downloadCsvButton.addEventListener('click', function() {
+        downloadCsvButton.addEventListener('click', function () {
             try {
                 var filename = filenameInput.value.trim();
                 if (!filename) {
@@ -536,14 +582,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 html += '<table border="1" style="border-collapse:collapse;">';
                 // headers
                 html += '<thead><tr>';
-                headers.forEach(function(h) { html += '<th>' + (h.innerText || '') + '</th>'; });
+                headers.forEach(function (h) { html += '<th>' + (h.innerText || '') + '</th>'; });
                 html += '</tr></thead>';
                 // body
                 html += '<tbody>';
-                rows.forEach(function(tr) {
+                rows.forEach(function (tr) {
                     html += '<tr>';
                     var cols = Array.from(tr.querySelectorAll('td'));
-                    cols.forEach(function(td) {
+                    cols.forEach(function (td) {
                         // Use innerHTML so anchor tags are preserved
                         var cellHtml = td.innerHTML || '';
                         html += '<td>' + cellHtml + '</td>';
@@ -559,7 +605,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 a.download = filename;
                 document.body.appendChild(a);
                 a.click();
-                setTimeout(function() { URL.revokeObjectURL(url); a.remove(); }, 1000);
+                setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 1000);
             } catch (e) {
                 console.error('Failed to export XLS', e);
                 alert('Export failed: ' + (e && e.message ? e.message : e));
@@ -595,14 +641,14 @@ function scrapeData() {
         // Rating and Reviews
         if (container) {
             var roleImgContainer = container.querySelector('[role="img"]');
-            
+
             if (roleImgContainer) {
                 var ariaLabel = roleImgContainer.getAttribute('aria-label');
-            
+
                 if (ariaLabel && ariaLabel.includes("stars")) {
                     var parts = ariaLabel.split(' ');
                     var rating = parts[0];
-                    var reviewCount = '(' + parts[2] + ')'; 
+                    var reviewCount = '(' + parts[2] + ')';
                 } else {
                     rating = '0';
                     reviewCount = '0';
@@ -622,17 +668,17 @@ function scrapeData() {
                 // Extract industry text based on the position before the address
                 var textBeforeAddress = containerText.substring(0, containerText.indexOf(address)).trim();
                 var ratingIndex = textBeforeAddress.lastIndexOf(rating + reviewCount);
-                    if (ratingIndex !== -1) {
-                        // Assuming industry is the first significant text after rating and review count
-                        var rawIndustryText = textBeforeAddress.substring(ratingIndex + (rating + reviewCount).length).trim().split(/[\r\n]+/)[0];
-                        var cleanedRawIndustry = rawIndustryText.replace(/[·.,#!?]/g, '').trim();
-                        // Industry: keep only alphabetical characters and spaces
-                        var industryAlpha = cleanedRawIndustry.replace(/[^A-Za-z\s]/g, '').trim();
-                        // Expensiveness: everything other than alphabetical characters (symbols, $, digits, etc.)
-                        var expensivenessVal = cleanedRawIndustry.replace(/[A-Za-z\s]/g, '').trim();
-                        industry = industryAlpha;
-                        // expose expensiveness in a variable for return
-                        var expensiveness = expensivenessVal;
+                if (ratingIndex !== -1) {
+                    // Assuming industry is the first significant text after rating and review count
+                    var rawIndustryText = textBeforeAddress.substring(ratingIndex + (rating + reviewCount).length).trim().split(/[\r\n]+/)[0];
+                    var cleanedRawIndustry = rawIndustryText.replace(/[·.,#!?]/g, '').trim();
+                    // Industry: keep only alphabetical characters and spaces
+                    var industryAlpha = cleanedRawIndustry.replace(/[^A-Za-z\s]/g, '').trim();
+                    // Expensiveness: everything other than alphabetical characters (symbols, $, digits, etc.)
+                    var expensivenessVal = cleanedRawIndustry.replace(/[A-Za-z\s]/g, '').trim();
+                    industry = industryAlpha;
+                    // expose expensiveness in a variable for return
+                    var expensiveness = expensivenessVal;
                 }
                 var filterRegex = /\b(Closed|Open 24 hours|24 hours)|Open\b/g;
                 address = address.replace(filterRegex, '').trim();
@@ -665,20 +711,20 @@ function scrapeData() {
             var title = document.title || '';
             var match = title.match(/in\s(.*?)\s-\sGoogle\sMaps/);
             if (match && match.length > 1) {
-              var city = match[1];
-              var potentialCity = city.split(' - ')[0];
-              return potentialCity;
+                var city = match[1];
+                var potentialCity = city.split(' - ')[0];
+                return potentialCity;
             }
-            
+
             var searchInput = document.querySelector('input[aria-label="Search Google Maps"]') || document.querySelector('#searchboxinput') || document.querySelector('input[aria-label*="Search"]');
             if (searchInput) {
-              var query = searchInput.value;
-              var inIndex = query.toLowerCase().indexOf(' in ');
-              if (inIndex !== -1) {
-                return query.substring(inIndex + 4);
-              }
+                var query = searchInput.value;
+                var inIndex = query.toLowerCase().indexOf(' in ');
+                if (inIndex !== -1) {
+                    return query.substring(inIndex + 4);
+                }
             }
-            
+
             return '';
         }
 
@@ -708,7 +754,7 @@ function scrapeData() {
 function tableToCsv(table) {
     var csv = [];
     var rows = table.querySelectorAll('tr');
-    
+
     for (var i = 0; i < rows.length; i++) {
         var row = [], cols = rows[i].querySelectorAll('td, th');
 
@@ -729,7 +775,7 @@ function downloadCsv(csv, filename) {
     var csvFile;
     var downloadLink;
 
-    csvFile = new Blob([csv], {type: 'text/csv'});
+    csvFile = new Blob([csv], { type: 'text/csv' });
     downloadLink = document.createElement('a');
     downloadLink.download = filename;
     downloadLink.href = window.URL.createObjectURL(csvFile);

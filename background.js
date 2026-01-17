@@ -16,14 +16,14 @@ function getCurrentVersion() {
 
 // Compare semantic versions (returns 1 if v1 > v2, -1 if v1 < v2, 0 if equal)
 function compareVersions(v1, v2) {
-    var parts1 = v1.split('.').map(function(n) { return parseInt(n, 10) || 0; });
-    var parts2 = v2.split('.').map(function(n) { return parseInt(n, 10) || 0; });
-    
+    var parts1 = v1.split('.').map(function (n) { return parseInt(n, 10) || 0; });
+    var parts2 = v2.split('.').map(function (n) { return parseInt(n, 10) || 0; });
+
     // Pad arrays to same length
     var maxLength = Math.max(parts1.length, parts2.length);
     while (parts1.length < maxLength) parts1.push(0);
     while (parts2.length < maxLength) parts2.push(0);
-    
+
     for (var i = 0; i < maxLength; i++) {
         if (parts1[i] > parts2[i]) return 1;
         if (parts1[i] < parts2[i]) return -1;
@@ -34,13 +34,13 @@ function compareVersions(v1, v2) {
 // Fetch version.json from GitHub
 function fetchVersionInfo() {
     return fetch(VERSION_JSON_URL)
-        .then(function(response) {
+        .then(function (response) {
             if (!response.ok) {
                 throw new Error('Failed to fetch version info: ' + response.status);
             }
             return response.json();
         })
-        .catch(function(error) {
+        .catch(function (error) {
             console.error('Error fetching version info:', error);
             throw error;
         });
@@ -49,28 +49,28 @@ function fetchVersionInfo() {
 // Check for updates and show notification if newer version is available
 function checkForUpdates() {
     var currentVersion = getCurrentVersion();
-    
+
     fetchVersionInfo()
-        .then(function(versionInfo) {
+        .then(function (versionInfo) {
             if (!versionInfo || !versionInfo.version) {
                 console.error('Invalid version.json format');
                 return;
             }
-            
+
             var remoteVersion = versionInfo.version;
             var comparison = compareVersions(remoteVersion, currentVersion);
-            
+
             if (comparison > 0) {
                 // Newer version available
                 console.log('New version available: ' + remoteVersion + ' (current: ' + currentVersion + ')');
-                
+
                 // Store update info in chrome.storage.local
                 chrome.storage.local.set({
                     updateAvailable: true,
                     updateVersion: remoteVersion,
                     updateUrl: versionInfo.downloadUrl || 'https://github.com/Hashaam101/google-maps-easy-scrape/releases/latest',
                     updateReleaseNotes: versionInfo.releaseNotes || 'Bug fixes and improvements'
-                }, function() {
+                }, function () {
                     showUpdateNotification(remoteVersion, versionInfo.downloadUrl, versionInfo.releaseNotes);
                 });
             } else {
@@ -79,7 +79,7 @@ function checkForUpdates() {
                 chrome.storage.local.set({ updateAvailable: false });
             }
         })
-        .catch(function(error) {
+        .catch(function (error) {
             // Handle errors gracefully - don't show notification for network errors
             console.error('Update check failed:', error);
         });
@@ -92,7 +92,7 @@ function showUpdateNotification(version, downloadUrl, releaseNotes) {
     if (releaseNotes) {
         message += '\n' + releaseNotes;
     }
-    
+
     chrome.notifications.create(notificationId, {
         type: 'basic',
         iconUrl: chrome.runtime.getURL('map.png'),
@@ -102,7 +102,7 @@ function showUpdateNotification(version, downloadUrl, releaseNotes) {
             { title: 'Download Update' }
         ],
         priority: 2
-    }, function(createdId) {
+    }, function (createdId) {
         if (chrome.runtime.lastError) {
             console.error('Error showing notification:', chrome.runtime.lastError);
         } else {
@@ -115,10 +115,10 @@ function showUpdateNotification(version, downloadUrl, releaseNotes) {
 }
 
 // Handle notification button clicks
-chrome.notifications.onButtonClicked.addListener(function(notificationId, buttonIndex) {
+chrome.notifications.onButtonClicked.addListener(function (notificationId, buttonIndex) {
     if (buttonIndex === 0) {
         // Download Update button clicked
-        chrome.storage.local.get(['notification_' + notificationId + '_url', 'updateUrl'], function(data) {
+        chrome.storage.local.get(['notification_' + notificationId + '_url', 'updateUrl'], function (data) {
             var url = data['notification_' + notificationId + '_url'] || data.updateUrl || 'https://github.com/Hashaam101/google-maps-easy-scrape/releases/latest';
             chrome.tabs.create({ url: url });
             // Clear notification URL
@@ -129,8 +129,8 @@ chrome.notifications.onButtonClicked.addListener(function(notificationId, button
 });
 
 // Handle notification clicks (clicking the notification itself)
-chrome.notifications.onClicked.addListener(function(notificationId) {
-    chrome.storage.local.get(['notification_' + notificationId + '_url', 'updateUrl'], function(data) {
+chrome.notifications.onClicked.addListener(function (notificationId) {
+    chrome.storage.local.get(['notification_' + notificationId + '_url', 'updateUrl'], function (data) {
         var url = data['notification_' + notificationId + '_url'] || data.updateUrl || 'https://github.com/Hashaam101/google-maps-easy-scrape/releases/latest';
         chrome.tabs.create({ url: url });
         chrome.storage.local.remove('notification_' + notificationId + '_url');
@@ -146,7 +146,7 @@ function setupUpdateAlarm() {
 }
 
 // Listen for alarm events
-chrome.alarms.onAlarm.addListener(function(alarm) {
+chrome.alarms.onAlarm.addListener(function (alarm) {
     if (alarm.name === UPDATE_CHECK_ALARM_NAME) {
         checkForUpdates();
         return;
@@ -156,28 +156,28 @@ chrome.alarms.onAlarm.addListener(function(alarm) {
     var BG_SCRAPE_ALARM = 'gmes_continuous_scrape';
     if (alarm.name === BG_SCRAPE_ALARM) {
         // Find any open Google Maps tabs and run the scraper on each
-        chrome.tabs.query({ url: ['*://www.google.com/maps/*'] }, function(tabs) {
+        chrome.tabs.query({ url: ['*://www.google.com/maps/*'] }, function (tabs) {
             if (!tabs || tabs.length === 0) return;
-            tabs.forEach(function(tab) {
+            tabs.forEach(function (tab) {
                 chrome.scripting.executeScript({
                     target: { tabId: tab.id },
                     function: scrapeData
-                }, function(results) {
+                }, function (results) {
                     if (!results || !results[0] || !results[0].result) return;
                     var newItems = results[0].result;
 
                     // Respect ignore lists and merge into storage
-                    chrome.storage.local.get(['gmes_results', 'gmes_ignore_names', 'gmes_ignore_industries'], function(data) {
+                    chrome.storage.local.get(['gmes_results', 'gmes_ignore_names', 'gmes_ignore_industries'], function (data) {
                         var existing = Array.isArray(data.gmes_results) ? data.gmes_results : [];
                         var ignoreNamesArr = Array.isArray(data.gmes_ignore_names) ? data.gmes_ignore_names : [];
                         var ignoreIndustriesArr = Array.isArray(data.gmes_ignore_industries) ? data.gmes_ignore_industries : [];
-                        var ignoreNamesSet = new Set(ignoreNamesArr.map(function(s){ return String(s).toLowerCase().trim(); }));
-                        var ignoreIndustriesSet = new Set(ignoreIndustriesArr.map(function(s){ return String(s).toLowerCase().trim(); }));
+                        var ignoreNamesSet = new Set(ignoreNamesArr.map(function (s) { return String(s).toLowerCase().trim(); }));
+                        var ignoreIndustriesSet = new Set(ignoreIndustriesArr.map(function (s) { return String(s).toLowerCase().trim(); }));
 
-                        var seen = new Set(existing.map(function(it) { return it.href || (it.title + '|' + it.address); }));
+                        var seen = new Set(existing.map(function (it) { return it.href || (it.title + '|' + it.address); }));
                         var added = false;
 
-                        newItems.forEach(function(item) {
+                        newItems.forEach(function (item) {
                             var key = item.href || (item.title + '|' + item.address);
                             if (!key) return;
                             if (seen.has(key)) return;
@@ -217,7 +217,7 @@ chrome.alarms.onAlarm.addListener(function(alarm) {
 });
 
 // Message API to start/stop background scraping via chrome.alarms
-chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
+chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     var BG_SCRAPE_ALARM = 'gmes_continuous_scrape';
     if (!msg || !msg.type) return;
 
@@ -228,7 +228,7 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
         chrome.storage.local.set({ gmes_background_scraping: true });
         sendResponse({ started: true, periodMinutes: period });
     } else if (msg.type === 'STOP_BACKGROUND_SCRAPE') {
-        chrome.alarms.clear(BG_SCRAPE_ALARM, function(wasCleared) {
+        chrome.alarms.clear(BG_SCRAPE_ALARM, function (wasCleared) {
             chrome.storage.local.set({ gmes_background_scraping: false });
             sendResponse({ stopped: wasCleared });
         });
@@ -238,21 +238,21 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 });
 
 // Accept items posted from injected content scripts and merge them into storage
-chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
+chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (!msg || msg.type !== 'INJECTED_SCRAPE_ITEMS' || !Array.isArray(msg.items)) return;
 
     var newItems = msg.items;
-    chrome.storage.local.get(['gmes_results', 'gmes_ignore_names', 'gmes_ignore_industries'], function(data) {
+    chrome.storage.local.get(['gmes_results', 'gmes_ignore_names', 'gmes_ignore_industries'], function (data) {
         var existing = Array.isArray(data.gmes_results) ? data.gmes_results : [];
         var ignoreNamesArr = Array.isArray(data.gmes_ignore_names) ? data.gmes_ignore_names : [];
         var ignoreIndustriesArr = Array.isArray(data.gmes_ignore_industries) ? data.gmes_ignore_industries : [];
-        var ignoreNamesSet = new Set(ignoreNamesArr.map(function(s){ return String(s).toLowerCase().trim(); }));
-        var ignoreIndustriesSet = new Set(ignoreIndustriesArr.map(function(s){ return String(s).toLowerCase().trim(); }));
+        var ignoreNamesSet = new Set(ignoreNamesArr.map(function (s) { return String(s).toLowerCase().trim(); }));
+        var ignoreIndustriesSet = new Set(ignoreIndustriesArr.map(function (s) { return String(s).toLowerCase().trim(); }));
 
-        var seen = new Set(existing.map(function(it) { return it.href || (it.title + '|' + it.address); }));
+        var seen = new Set(existing.map(function (it) { return it.href || (it.title + '|' + it.address); }));
         var added = false;
 
-        newItems.forEach(function(item) {
+        newItems.forEach(function (item) {
             var key = item.href || (item.title + '|' + item.address);
             if (!key) return;
             if (seen.has(key)) return;
@@ -267,7 +267,7 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
                     for (var ig of ignoreIndustriesSet) { if (!ig) continue; if (industry === ig || industry.indexOf(ig) !== -1) { ignoreMatch = true; break; } }
                 }
                 if (ignoreMatch) return;
-            } catch (e) {}
+            } catch (e) { }
 
             seen.add(key);
             existing.push(item);
@@ -279,12 +279,12 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
 });
 
 // Check for updates on extension startup
-chrome.runtime.onStartup.addListener(function() {
+chrome.runtime.onStartup.addListener(function () {
     checkForUpdates();
 });
 
 // Check for updates when extension is installed or enabled
-chrome.runtime.onInstalled.addListener(function() {
+chrome.runtime.onInstalled.addListener(function () {
     checkForUpdates();
     setupUpdateAlarm();
 });
@@ -298,32 +298,32 @@ checkForUpdates();
 // End of Update Checker
 // ============================================================================
 
-chrome.commands.onCommand.addListener(function(command) {
+chrome.commands.onCommand.addListener(function (command) {
     if (command !== 'scrape') return;
 
-    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
         var tab = tabs && tabs[0];
         if (!tab) return;
 
         chrome.scripting.executeScript({
             target: { tabId: tab.id },
             function: scrapeData
-        }, function(results) {
+        }, function (results) {
             if (!results || !results[0] || !results[0].result) return;
             var newItems = results[0].result;
 
             // Also respect ignore lists stored under 'gmes_ignore_names' and 'gmes_ignore_industries' (arrays of strings).
-            chrome.storage.local.get(['gmes_results', 'gmes_ignore_names', 'gmes_ignore_industries'], function(data) {
+            chrome.storage.local.get(['gmes_results', 'gmes_ignore_names', 'gmes_ignore_industries'], function (data) {
                 var existing = Array.isArray(data.gmes_results) ? data.gmes_results : [];
                 var ignoreNamesArr = Array.isArray(data.gmes_ignore_names) ? data.gmes_ignore_names : [];
                 var ignoreIndustriesArr = Array.isArray(data.gmes_ignore_industries) ? data.gmes_ignore_industries : [];
-                var ignoreNamesSet = new Set(ignoreNamesArr.map(function(s){ return String(s).toLowerCase().trim(); }));
-                var ignoreIndustriesSet = new Set(ignoreIndustriesArr.map(function(s){ return String(s).toLowerCase().trim(); }));
+                var ignoreNamesSet = new Set(ignoreNamesArr.map(function (s) { return String(s).toLowerCase().trim(); }));
+                var ignoreIndustriesSet = new Set(ignoreIndustriesArr.map(function (s) { return String(s).toLowerCase().trim(); }));
 
-                var seen = new Set(existing.map(function(it) { return it.href || (it.title + '|' + it.address); }));
+                var seen = new Set(existing.map(function (it) { return it.href || (it.title + '|' + it.address); }));
                 var added = false;
 
-                newItems.forEach(function(item) {
+                newItems.forEach(function (item) {
                     var key = item.href || (item.title + '|' + item.address);
                     if (!key) return;
                     // skip if already seen
@@ -331,31 +331,31 @@ chrome.commands.onCommand.addListener(function(command) {
                     // skip if title or industry matches an ignore token (case-insensitive substring match)
                     try {
                         var ignoreMatch = false;
-                        
+
                         // Check title/name
                         if (item && item.title) {
                             var title = String(item.title).toLowerCase();
                             for (var ig of ignoreNamesSet) {
                                 if (!ig) continue;
-                                if (title === ig || title.indexOf(ig) !== -1) { 
-                                    ignoreMatch = true; 
-                                    break; 
+                                if (title === ig || title.indexOf(ig) !== -1) {
+                                    ignoreMatch = true;
+                                    break;
                                 }
                             }
                         }
-                        
+
                         // Check industry if title didn't match
                         if (!ignoreMatch && item && item.industry) {
                             var industry = String(item.industry).toLowerCase();
                             for (var ig of ignoreIndustriesSet) {
                                 if (!ig) continue;
-                                if (industry === ig || industry.indexOf(ig) !== -1) { 
-                                    ignoreMatch = true; 
-                                    break; 
+                                if (industry === ig || industry.indexOf(ig) !== -1) {
+                                    ignoreMatch = true;
+                                    break;
                                 }
                             }
                         }
-                        
+
                         if (ignoreMatch) return;
                     } catch (e) {
                         // if matching fails, proceed with adding
@@ -374,6 +374,109 @@ chrome.commands.onCommand.addListener(function(command) {
     });
 });
 
+
+// Manual Mode Message Handlers
+chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+    if (!msg || !msg.type) return;
+
+    if (msg.type === 'MANUAL_ADD_ITEM') {
+        handleManualAddItem(msg.item).then(() => {
+            sendResponse({ success: true });
+        });
+        return true; // async response
+    }
+
+    if (msg.type === 'GET_MODE') {
+        chrome.storage.local.get(['gmes_mode'], function (result) {
+            sendResponse({ mode: result.gmes_mode || 'scraping' });
+        });
+        return true;
+    }
+
+    if (msg.type === 'CHECK_SHOULD_SHOW_OVERLAY') {
+        chrome.storage.local.get(['gmes_mode', 'gmes_overlay_dismissed'], function (result) {
+            var shouldShow = result.gmes_mode === 'manual' && !result.gmes_overlay_dismissed;
+            sendResponse({ shouldShow: shouldShow });
+        });
+        return true;
+    }
+});
+
+// Toggle overlay command
+chrome.commands.onCommand.addListener(function (command) {
+    if (command === 'toggle_manual_overlay') {
+        chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+            if (!tabs[0]) return;
+
+            // Toggle the dismissed state
+            chrome.storage.local.get(['gmes_overlay_dismissed', 'gmes_mode'], function (result) {
+                var newDismissed = !result.gmes_overlay_dismissed;
+
+                chrome.storage.local.set({ gmes_overlay_dismissed: newDismissed }, function () {
+                    // Refresh overlay state in active tab
+                    if (result.gmes_mode === 'manual') {
+                        // We can just re-inject or let the user refresh, but let's try to reload the page or inject
+                        if (tabs[0].url.includes('google.com/maps')) {
+                            chrome.scripting.executeScript({
+                                target: { tabId: tabs[0].id },
+                                files: ['manual_mode_maps.js']
+                            });
+                        } else {
+                            chrome.scripting.executeScript({
+                                target: { tabId: tabs[0].id },
+                                files: ['manual_mode_website.js']
+                            });
+                        }
+                    }
+                });
+            });
+        });
+    }
+});
+
+function handleManualAddItem(item) {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['gmes_results', 'gmes_ignore_names', 'gmes_ignore_industries'], function (result) {
+            var existingItems = Array.isArray(result.gmes_results) ? result.gmes_results : [];
+            var ignoreNames = Array.isArray(result.gmes_ignore_names) ? result.gmes_ignore_names : [];
+            var ignoreIndustries = Array.isArray(result.gmes_ignore_industries) ? result.gmes_ignore_industries : [];
+
+            // dedupe logic
+            var key = item.href || (item.title + '|' + item.address);
+            var seen = new Set(existingItems.map(function (i) { return i.href || (i.title + '|' + i.address); }));
+
+            if (seen.has(key)) {
+                console.log('Duplicate item, skipping:', item.title);
+                resolve();
+                return;
+            }
+
+            // ignore logic
+            var titleLower = (item.title || '').toLowerCase();
+            var industryLower = (item.industry || '').toLowerCase();
+
+            for (var name of ignoreNames) {
+                if (titleLower.includes(name.toLowerCase())) {
+                    console.log('Item ignored by name filter:', item.title);
+                    resolve();
+                    return;
+                }
+            }
+
+            for (var ind of ignoreIndustries) {
+                if (industryLower.includes(ind.toLowerCase())) {
+                    console.log('Item ignored by industry filter:', item.industry);
+                    resolve();
+                    return;
+                }
+            }
+
+            existingItems.push(item);
+            chrome.storage.local.set({ gmes_results: existingItems }, resolve);
+        });
+    });
+}
+
 // The scrapeData function is serialized and injected into the page by executeScript.
 // It must not reference extension APIs; it only inspects the DOM and returns data.
 function scrapeData() {
@@ -391,14 +494,14 @@ function scrapeData() {
         // Rating and Reviews
         if (container) {
             var roleImgContainer = container.querySelector('[role="img"]');
-            
+
             if (roleImgContainer) {
                 var ariaLabel = roleImgContainer.getAttribute('aria-label');
-            
+
                 if (ariaLabel && ariaLabel.includes("stars")) {
                     var parts = ariaLabel.split(' ');
                     var rating = parts[0];
-                    var reviewCount = '(' + parts[2] + ')'; 
+                    var reviewCount = '(' + parts[2] + ')';
                 } else {
                     rating = '0';
                     reviewCount = '0';
@@ -459,20 +562,20 @@ function scrapeData() {
             var title = document.title || '';
             var match = title.match(/in\s(.*?)\s-\sGoogle\sMaps/);
             if (match && match.length > 1) {
-              var city = match[1];
-              var potentialCity = city.split(' - ')[0];
-              return potentialCity;
+                var city = match[1];
+                var potentialCity = city.split(' - ')[0];
+                return potentialCity;
             }
-            
+
             var searchInput = document.querySelector('input[aria-label="Search Google Maps"]') || document.querySelector('#searchboxinput') || document.querySelector('input[aria-label*="Search"]');
             if (searchInput) {
-              var query = searchInput.value;
-              var inIndex = query.toLowerCase().indexOf(' in ');
-              if (inIndex !== -1) {
-                return query.substring(inIndex + 4);
-              }
+                var query = searchInput.value;
+                var inIndex = query.toLowerCase().indexOf(' in ');
+                if (inIndex !== -1) {
+                    return query.substring(inIndex + 4);
+                }
             }
-            
+
             return '';
         }
 

@@ -126,6 +126,61 @@
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
+
+    /* Mode Toggle CSS */
+    .mode-toggle-container {
+      display: flex;
+      gap: 8px;
+      margin: 16px 0;
+      padding: 8px;
+      background: #f5f5f5;
+      border-radius: 8px;
+    }
+    .mode-btn {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      background: transparent;
+      color: #666;
+      transition: all 0.2s;
+    }
+    .mode-btn.active {
+      background: #4285f4;
+      color: white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .mode-btn:hover:not(.active) {
+      background: #e0e0e0;
+    }
+    .manual-mode-info {
+      padding: 16px;
+      background: #e8f5e9;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      border: 1px solid #c8e6c9;
+    }
+    .manual-mode-info h3 {
+      margin: 0 0 8px 0;
+      color: #2e7d32;
+      font-size: 18px;
+    }
+    .manual-mode-info p {
+      margin: 8px 0;
+      color: #333;
+      font-size: 14px;
+    }
+    .manual-mode-info ul {
+      margin: 8px 0;
+      padding-left: 20px;
+      font-size: 14px;
+    }
+    .manual-mode-info li {
+      margin: 4px 0;
+    }
   </style>
 </head>
 
@@ -139,17 +194,46 @@
     <span style="font-weight: bolder; color: #313131;"> Open popup:<span style="color: #505050;"> Ctrl+Shift+Y
       </span></span>
       <br>
-    <span style="font-weight: bolder; color: #313131;"> Scrape active Maps tab:<span style="color: #505050;"> Ctrl+Shift+S (command name: `scrape`)
+    <div id="scraping-shortcuts">
+    <span style="font-weight: bolder; color: #313131;"> Scrape active Maps tab:<span style="color: #505050;"> Ctrl+Shift+S
       </span></span>
+    </div>
 
   </div>
-  <div id="message">Checking URL...</div>
-  <button id="actionButton" class="button" disabled>Scrape Google Maps</button>
-  <button id="clearListButton" class="button red-btn" style="margin-left: 10px;" disabled>Clear List</button>
-  <button id="removeChainsButton" class="button darkred-btn" style="margin-left: 10px;">Remove Chains <span class="spinner" style="display:none" aria-hidden="true"></span></button>
-  <br>
-  <button style="margin-top: 5px;" id="downloadCsvButton" class="button black-btn" style="margin-left: 10px;" disabled>Download as CSV</button>
-  <input type="text" id="filenameInput" class="input" placeholder="Enter file name" style="margin-left: 10px;" />
+
+  <div class="mode-toggle-container">
+    <button id="scrapingModeBtn" class="mode-btn active">Scraping Mode</button>
+    <button id="manualModeBtn" class="mode-btn">Manual Mode</button>
+  </div>
+
+  <!-- Scraping Mode Section -->
+  <div id="scrapingModeSection">
+    <div id="message">Checking URL...</div>
+    <button id="actionButton" class="button" disabled>Scrape Google Maps</button>
+  </div>
+
+  <!-- Manual Mode Section -->
+  <div id="manualModeSection" style="display: none;">
+    <div class="manual-mode-info">
+      <h3>Manual Mode Active</h3>
+      <p>Visit any Google Maps place or business website to see the info overlay.</p>
+      <ul>
+        <li><strong>Google Maps:</strong> View place details and add with one click</li>
+        <li><strong>Websites:</strong> Auto-scan for contact info, emails, and addresses</li>
+      </ul>
+      <p><small style="color: #666;">Use Ctrl+Shift+M to toggle the overlay visibility on any page.</small></p>
+    </div>
+  </div>
+
+  <!-- Shared Controls -->
+  <div style="margin-top: 15px;">
+    <button id="clearListButton" class="button red-btn" style="margin-left: 0;" disabled>Clear List</button>
+    <button id="removeChainsButton" class="button darkred-btn" style="margin-left: 10px;">Remove Chains <span class="spinner" style="display:none" aria-hidden="true"></span></button>
+    <div style="height: 10px;"></div>
+    <button id="downloadCsvButton" class="button black-btn" style="margin-left: 0;" disabled>Download as CSV</button>
+    <input type="text" id="filenameInput" class="input" placeholder="Enter file name" style="margin-left: 10px;" />
+  </div>
+
   <table id="resultsTable">
     <thead>
       <tr>
